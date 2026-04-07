@@ -1,0 +1,663 @@
+---
+title: "Repeated Measurements in Clinical Studies Course"
+subtitle: "MEP-EL002 --- Exam Group 4"
+author: "Amanda Evelo, Anmol Rajpar, Maud van Drimmelen, Laura Verbeij"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: 
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 5
+    number_sections: FALSE 
+    theme: flatly
+    highlight: tango
+    code_folding: hide
+    css: RPM.css
+---
+
+```{r setup, include=FALSE}
+# Global chunk options
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 10,
+  fig.height = 6,
+  fig.align = "center",
+  cache = FALSE
+)
+```
+
+```{r loading libraries, include=FALSE}
+library("shiny")
+library("lattice")
+library("nlme")
+library("lme4")
+library("geepack")
+library("GLMMadaptive")
+library("MASS")
+library("splines")
+library("corrplot")
+library("ggplot2")
+library("survival")
+library("tidyr")
+library("tidyverse")
+library("dplyr")
+library("tableone")
+library("gt")
+
+# Set theme for plots
+theme_set(theme_minimal() + 
+          theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+                plot.subtitle = element_text(hjust = 0.5, size = 12)))
+```
+\newpage
+
+# Exam introduction
+You received a simulated database (each team has a different database) on patients who underwent valve transplantation in the aortic position from a human donor. After the operation, echocardiography measurements have been taken for these patients during a follow-up period of up to 20 years (note that some patients have a shorter follow-up, i.e., they have dropped out from the study, or some others may have missed some visits). The two outcomes we are primarily interested in here are the aortic gradient and the presence ot absence of aortic regurgitation. The database contains the following variables: 
+• id: patient ID number 
+• aoGrad: the value of aortic gradient (mmHg)* 
+• aoReg: a {0, 1} variable denoting whether the patient had (value ‘1’) or not (value ‘0’) aortic regurgitation at the specific visit  
+• times: time of the visit (years) 
+• TypeOp: type of operation the patient underwent; possible values ‘A’ and ‘B’ 
+• age: the age of the patients (years) 
+• sex: the sex of the patients 
+
+# Part 1 of exam (continous data) - Aortic Gradient
+```{r loading the data for the course}
+df <- load("Group_4.RData")
+```
+## Descriptive analysis
+
+## Question 1 
+<div class="exam-question">
+Start by producing summary statistics regarding the sample at hand (i.e., number of patients, number of males/females, number of patients per operation type, average age of patients, etc.).
+</div>
+
+As a complete beginning, we looked at a simple table one specifying the different variables. We see the study included 4,414 patients with a mean age of 64 years. Women represented 47.8% of the cohort. The mean aortic gradient was 17.7 mmHg, and aortic regurgitation was present in 42.9% of patients. Operation type B was performed in 49.2% of cases. The mean follow‑up time was 8.7 years, providing a sufficiently long observation period for subsequent analyse.
+
+```{r summary descriptives table one}
+# Define variables
+vars    <- c("Age", "sex", "aoGrad", "aoReg", "TypeOp", "time")
+catVars <- c("sex", "TypeOp", "aoReg")
+
+# Create TableOne object
+tab1 <- CreateTableOne(
+  vars       = vars,
+  data       = DF,
+  factorVars = catVars
+)
+
+tab1
+```
+
+## Question 2 
+<div class="exam-question">
+First, the focus is on the aortic gradient outcome* (aoGrad). Produce descriptive figures for this outcome and graphically depict the longitudinal evolution (both marginal and subject-specific). 
+
+Discuss the results you obtain. Based on this descriptive analysis, do you see non-linearities, differences between operation types, and differences between younger and older patients? What does the distribution of the aortic gradient look like? Should you consider a transformation?
+</div>
+
+### Descriptives for primary outcome (aortic gradient)
+The aortic (ventricle) gradient indicates the difference in pressure between the left ventricle and the aorta during heart contraction, it is often used to measure the severity of aortic stenosis. 
+
+Mean gradient (mmHg) classification for aortic stenosis (AS):
+Mild AS: 10-20
+Moderate AS: 20–40
+Severe AS: > 40
+[source: https://pmc.ncbi.nlm.nih.gov/articles/PMC8503314/]
+
+In this study, we want to observe differences in aortic gradients based on the type of operation patients received and start by visualizing this data in spaghetti plots. Starting with a general spaghetti plot for the ***aortic gradient values over time***. 
+
+```{r descriptives per difference in operation}
+# Spaghetti plot general
+xyplot(aoGrad ~ time,
+       data = DF, 
+       groups = id,
+       type = "l",
+       col = "lightblue",
+       lwd = 1,
+       alpha = 0.5,
+       panel = function(x, y, ...) {
+         panel.xyplot(x, y, ...)                      # spaghetti lines
+         panel.loess(x, y, col = "darkblue", lwd = 2) # dark blue smoother
+       })
+```
+*Observation aortic gradient values over time:*
+The spaghetti plot shows that patients begin with similar aortic gradient values early in follow‑up, but their trajectories separate clearly over time. The lines form two visually distinct bands, with very few observations falling between them, suggesting the presence of two dominant progression patterns even though no formal grouping was applied.
+
+Then we split this spaghetti plot for ***type of operation***. 
+```{r spaghetti split by type of operation}
+# Spaghetti plot split for type of operation
+xyplot(aoGrad ~ time | TypeOp,
+       data = DF, 
+       groups = id,
+       type = "l",
+       col = "lightblue",
+       lwd = 1,
+       alpha = 0.5,
+       panel = function(x, y, ...) {
+         panel.xyplot(x, y, ...)                      # spaghetti lines
+         panel.loess(x, y, col = "darkblue", lwd = 2) # dark blue smoother
+       })
+```
+*Observation aortic gradient values over time devided by type of operation:*
+The spaghetti plot shows broadly similar aortic gradient trajectories across patients, but the LOESS curves reveal a steeper upward trend for Operation A, whereas Operation B remains relatively stable over time. At the same time, there are noticeably fewer observed trajectories for Operation A at later follow‑up points, while Operation B retains more patients. This difference in data density toward the end of follow‑up may partly influence the apparent divergence in the smoothed trends.”
+
+Specifically, a small number of patients that recieved oepration A seem to have elevated aortic gradient values at later follow‑up times (>100 mmHg). These high values indicate severe aortic stenosis at the end of the study and may reflect late complications, as described in previous studies. [source:https://pubmed.ncbi.nlm.nih.gov/20026771/]. 
+
+When splitting for ***biological sex*** we see the following. 
+```{r descriptives split by sex spaghetti}
+# Spaghetti plot split for sex
+xyplot(aoGrad ~ time | sex,
+       data = DF, 
+       groups = id,
+       type = "l",
+       col = "lightblue",
+       lwd = 1,
+       alpha = 0.5,
+       panel = function(x, y, ...) {
+         panel.xyplot(x, y, ...)                      # spaghetti lines
+         panel.loess(x, y, col = "darkblue", lwd = 2) # dark blue smoother
+       })
+```
+The spaghetti plot shows clear differences between men and women, but appears very dense. Therefor using an xyplot with a smoothed trend line provides a clearer view of sex‑specific patterns. 
+
+```{r descriptives split by sex dots}
+# Aortic gradient evolution based on sex
+xyplot(aoGrad~time | sex, data =DF, type=c("p", "smooth"), cex=0.5, lwd=2) 
+```
+*Observation aortic gradient values over time divided biological sex:* 
+Women show a stronger and more variable upward trend (dots are futher apart) in aortic gradient over time, whereas men show a flatter and more uniform pattern (dots are closer together). 
+
+Then looking at ***age***, we did not use a spaghetti plot because age is a continuous variable, and the resulting lines would not represent meaningful trajectories.
+
+```{r descriptives by age}
+xyplot(aoGrad ~ Age, data = DF, type = c("p", "smooth"), cex = 0.5, lwd = 2)
+```
+*Observation aortic gradient values per years of age:*  
+Across the full age range, most points remain concentrated at low aortic‑gradient values, with no clear age‑related trend. This pattern is clinically possible, but it is unlikely that age has no effect at all, so we grouped age to explore whether broader categories would reveal differences. Grouping also allows us to visualise how the aortic gradient evolves over time within each age category.
+
+
+```{r descriptive on age}
+# Making some age groups
+DF$ageGroup <- cut(DF$Age, 
+                   breaks = c(0, 30, 50, 65, 120),
+                   labels = c("<30", "30-50", "50-65", "65+"))
+
+# Aortic gradient evolution based on these age groups
+xyplot(aoGrad~time | ageGroup, data =DF, type=c("p", "smooth"), cex=0.5, lwd=2) #split by age groups
+
+```  
+*Observation aortic gradient values over time for different age groups:*
+When age is grouped into three levels, both the point patterns and the LOESS curves suggest some age‑related differences. In particular, the 30–50 group shows a steeper LOESS‑based increase in aortic gradient over time.
+
+```{r descriptive on age with sex layer}
+# Aortic gradient evolution based on these age groups split by sex
+xyplot(aoGrad ~ time | ageGroup, data =DF, 
+       groups = sex,
+       type = c("p", "smooth"), 
+       cex =0.5, lwd=2, 
+       auto.key = list(space = "right"),
+       main = "oaGrad over time by agegroups and sex",
+       xlab = "Time in years",
+       ylab = "aoGrad (mmHg)"
+)
+``` 
+*Observation aortic gradient values over time for different age groups and sex highlighting:*
+When further dividing these age groups by sex, the sex effect observed in the overall population appears similar across all age categories.
+
+Subsequently we looked further into the ***aortic gradient over time split by age group and operation type***.
+```{r descriptive on age with operation type layer}
+       
+# Aortic gradient evolution based on these age groups split by operation type
+xyplot(aoGrad ~ time | ageGroup, data =DF, 
+       groups = TypeOp,
+       type = c("p", "smooth"), 
+       cex =0.5, lwd=2, 
+       auto.key = list(space = "right"),
+       main = "oaGrad over time by agegroups and operation type",
+       xlab = "Time in years",
+       ylab = "aoGrad (mmHg)"
+)
+```
+*Observation aortic gradient values over time for different age groups and operation highlighting:*
+In this plot, the 50–65 group appears relatively stable over time, with little upward movement in the LOESS curve. In contrast, the 65+ group shows a much more divergent pattern toward the end of follow‑up. This is particularly visible in the large number of low aortic‑gradient observations among Type B operations (yellow points), whereas Type A operations (blue points) show a more consistent pattern.
+
+### Distribution of primary outcome (auortic gradient)
+We then evaluated the distributional characteristics of the main variable aortic gradient to inform the next modelling steps. we plotted a histogram with an overlaid density curve to assess its overall shape and spread.
+
+```{r histogram and density bell curve plot for aortic gradient}
+# Histogram + Density bell curve plot
+ggplot(DF, aes(x = aoGrad)) +
+  geom_histogram(aes(y = after_stat(density)), 
+                 binwidth = 5, fill = "skyblue", color = "black", alpha = 0.8) +
+  geom_density(color = "darkblue", lwd = 1.2) +
+  labs(x = "Aortic gradient",
+       y = "Density",
+       title = "Aortic gradient distribution (histogram + density)") +
+  theme_minimal()
+
+```
+*Observation aortic gradient distribution:*
+The distribution of the aortic gradient is clearly skewed, with a strong left‑skewed pattern. This aligns with earlier observations of several extreme measurements (>100 mmHg) in both operation groups, and even some very high values (>150 mmHg) in the Type A group.
+
+This leaves two possible approaches: (1) remove outliers or (2) transform the aortic‑gradient outcome. Removing outliers is not appropriate here, as the underlying cause of these extreme values is unknown. Although they could reflect technical issues (e.g., measurement artefacts, calibration problems, or incorrect valve assignment), they may also represent clinically meaningful observations. Excluding them would risk discarding potentially important information.
+
+A more suitable approach is therefore to ***transform the aortic‑gradient variable***. Common options include a square‑root or logarithmic transformation. To determine which is most appropriate, we compare both transformations below.
+
+```{r transformation of aoGrad}
+# Trying a transformation on both log and sqrt options:
+DF$aoGrad_log <- log(DF$aoGrad)
+DF$aoGrad_sqrt <- sqrt(DF$aoGrad)
+
+# Bell‑curve comparison (density plots)
+# Stack both transformed versions with a label
+df_long <- tidyr::pivot_longer(
+  DF,
+  cols = c(aoGrad_log, aoGrad_sqrt),
+  names_to = "transf",
+  values_to = "value"
+)
+# Actual plot
+ggplot(df_long, aes(x = value, color = transf, fill = transf, alpha = after_scale(0.2))) +
+  geom_density() +
+  geom_histogram(aes(y = after_stat(density)), 
+                 alpha = 0.3, bins = 30, position = "identity") +
+  labs(x = "Transformed aortic gradient",
+       y = "Density",
+       title = "Log vs. sqrt transformation of aortic gradient",
+       color = "Transformation",
+       fill = "Transformation") +
+  theme_minimal()
+
+# Stack both transformed variables
+# 1) QQ plot for log‑transformed aoGrad
+par(mfrow = c(1, 2))
+
+qqnorm(DF$aoGrad_log,
+       main = "QQ plot: log(aortic gradient)",
+       pch = 16,
+       cex = 0.6)
+qqline(DF$aoGrad_log, col = "red", lwd = 1.5)
+
+# 2) QQ plot for sqrt‑transformed aoGrad
+qqnorm(DF$aoGrad_sqrt,
+       main = "QQ plot: sqrt(aortic gradient)",
+       pch = 16,
+       cex = 0.6)
+qqline(DF$aoGrad_sqrt, col = "red", lwd = 1.5)
+
+par(mfrow = c(1, 1))  # reset layout
+```
+*Observation of aortic gradient variable after transformation:*
+When comparing the log and square‑root transformations, both reduce the strong right‑skew of the original aortic‑gradient distribution. However, the histogram and density curves show that the log transformation produces a distribution that is more bell‑shaped and symmetric than the square‑root transformation. This is supported by the Q–Q plots, where the log‑transformed values follow the theoretical normal line more closely. Based on these distributional improvements, we will use the log‑transformed aortic‑gradient variable (aoGrad_log) for further analyses.
+
+## Question 3 (Main Analysis)
+
+<div class="exam-question">
+The researchers in this study are interested in investigating how the aortic gradient evolves over time and how this evolution is related to the rest of the variables in the database (namely, age, sex, and type of operation).
+
+Build an appropriate marginal model for the aortic gradient to answer this question. Describe all the steps you have performed to reach your final model (including the residuals analysis). For your final model, present the results you obtained in ‘simple words’ (i.e., such that a non‑statistician would understand – you may also use effect plots if deemed necessary).
+</div>
+
+### Step 1.
+We start by building our marginal model using a basic generalized least squares estimation. This first model (fm0) does not yet include a correlation structure or variance function. At this stage, we specify only the mean structure and include all covariates of interest in the fixed‑effects part, considering possible nonlinear terms and interactions between them.
+
+For the fixed effects, we model the non‑linear effects of time and age using natural cubic splines with three degrees of freedom. Following standard recommendations, we use the nsk() function, which places the boundary knots at the 5th and 95th percentiles of the follow‑up times. We also adjust for sex and type of operation, and include interactions between time and both sex and type of operation, as well as interactions between age and these same variables. Hence, the call to gls() that incorporates these components is:
+
+```{r first marginal model for aortic gradient}
+fm0 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex), data = DF)
+
+summary(fm0)
+```
+
+<div class="note-box">
+**Interpetation of the results??**: Should we have a interpetation of the results here? This was there in the practical 1 assignment. 
+</div>
+
+
+### Step 2.
+We extend the model and consider four different correlation matrices for the repeated measurements: compound symmetry, continuous auto-regressive of order 1, exponential and Gaussian correlations. 
+
+<div class="note-box">
+**Error in running the function**: When running the scripts adding the correlation structures to our marginal model, this we get an error:
+
+"Error in Initialize.corCAR1(X[[i]], ...) : covariate must have unique values within groups for "corCAR1" objects" 
+
+This indicates that the time variable contains duplicate values within at least one subject.
+</div>
+
+Upon investigating this issue, we found that only one patient (ID 24) had repeated measurements at the exact same time point (12.4). The first measurement appears more extreme, suggesting a peak in the aortic gradient. To proceed with the analysis, we removed the second measurement at this duplicated time point, while noting this irregularity for interpretation.
+
+```{r error solving}
+df_dups <- DF %>%
+  group_by(id) %>%
+  filter(duplicated(time) | duplicated(time, fromLast = TRUE))
+
+df_dups
+
+DF <- DF[!duplicated(DF[c("id", "time")]), ]
+```
+
+This resolved the issue, and the models with correlation structures could now be fitted.
+
+```{r adding correlation structures}
+fm0 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex), data = DF)
+
+# correlation structures only 
+# 1 corCompSymm
+fm1 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex), data = DF, correlation = corCompSymm(form = ~ time | id))
+
+# 2 corCAR1
+fm2 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex), data = DF, correlation = corCAR1(form = ~ time | id))
+
+# 3corLin
+fm3 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex), data = DF, correlation = corLin(form = ~ time | id))
+
+# 4 corGaus
+fm4 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex), data = DF, correlation = corGaus(form = ~ time | id))
+```
+
+These models (fm1–fm4) incorporate different assumptions about the correlation between repeated measurements but still assume homoscedasticity (constant error variance). To evaluate whether this assumption is appropriate, we also extend each model by allowing heteroscedasticity through an exponential variance function:
+
+```{r adding the assumption of heteroscedasticity}
+# Correlation structures + heteroscedastic error 
+# 5 corCompSymm + H. error
+fm5 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex), data = DF, correlation = corCompSymm(form = ~ time | id), weights = varExp(form = ~ time))
+
+# 6 corCAR1 + H. error
+fm6 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex), data = DF, correlation = corCAR1(form = ~ time | id), weights = varExp(form = ~ time))
+
+# 7 corLin + H. error
+fm7 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex), data = DF, correlation = corLin(form = ~ time | id), weights = varExp(form = ~ time))
+
+# 8 corGaus + H. error
+fm8 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex), data = DF, correlation = corGaus(form = ~ time | id), weights = varExp(form = ~ time))
+
+```
+
+*** Model comparison***
+After adding these correlation structures and also adding the heteroscedasticity assumption to these different models, we need to see which models are best suited. 
+
+We first compare the homoscedastic models (fm1–fm4). Because these models differ in their correlation structures, they are not nested, so we rely on AIC and BIC for comparison:
+
+```{r hypothesis testing homoscedastic error models}
+# First we compare the models with homoscedastic errors
+anova1 <- anova(fm1, fm2, fm3, fm4)
+
+summary(anova1)
+```
+*Interpeation:* 
+The compound symmetry model (fm1) has the lowest AIC and BIC (AIC = 8841.970, BIC = 8988.884), indicating the best fit among the homoscedastic models.
+
+Next, we compare the heteroscedastic models (fm5–fm8): 
+```{r hypothesis testing heteroscedastic error models}
+# and following the models with heteroscedastic errors
+anova2 <- anova(fm5, fm6, fm7, fm8)
+summary(anova2)
+```
+*Interpeation:* 
+Again, the compound symmetry model (fm5) yields the lowest AIC and BIC (AIC = 8323.823, BIC = 8477.124), making it the best-fitting heteroscedastic model.
+
+Since fm1 (homoscedastic) and fm5 (heteroscedastic) are nested versions of the same correlation structure, we can compare them using a likelihood ratio test: 
+
+```{r}
+anova3 <- anova(fm1, fm5)
+summary(anova3)
+```
+*Interpeation:* 
+The likelihood ratio test shows that the heteroscedastic compound symmetry model (fm5) provides a significantly better fit (p < .0001). This suggests that the variance of the residuals changes over time, and that modelling this heteroscedasticity improves the model.
+
+The compound symmetry structure implies that all pairs of measurements within a subject share the same correlation, regardless of how far apart in time they are. While this may seem clinically counterintuitive, it can arise due to the unbalanced follow‑up times across patients.
+
+### Step 3.
+“In the final step of our analysis, we return to the mean structure of the model and assess whether the interaction terms can be removed. 
+
+Following standard model‑building practice, we begin by testing the interaction terms rather than the main effects, as removing a main effect that participates in an interaction would lead to an invalid model. 
+
+We therefore start by assessing whether the interactions involving the non‑linear time effect contribute significantly to the model fit. Because these models differ in their fixed‑effect structure, both were fitted using maximum likelihood (ML) rather than restricted maximum likelihood (REML), as ML is required for likelihood ratio tests when the fixed effects differ.
+
+First we will test if any interaction terms are needed by dropping them all;
+```{r}
+
+```
+*Observation of dropping all interaction effect:*
+...
+...
+
+This means we will have to look at the interaction effect seperatly, starting with the ***time interaction*** effects. 
+
+```{r testing the time interaction contribution with ML}
+# Full model with ML
+fm5_ML <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex), data = DF, correlation = corCompSymm(form = ~ time | id), weights = varExp(form = ~ time), method = "ML")
+
+fm_time_drop <-  gls(aoGrad_log ~ nsk(time, 3) + (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex), data = DF, correlation = corCompSymm(form = ~ time | id), weights = varExp(form = ~ time), method = "ML")
+
+
+anova_time <- anova(fm5_ML, fm_time_drop)
+anova_time
+
+```
+*Observation of time effect test:*
+The likelihood ratio test comparing the full model (fm5) with the reduced model without time interactions yields a test statistic of 1189.362 with p < .0001, indicating that the time interactions contribute significantly to the model. Therefore, the interactions between the non‑linear time effect and both sex and type of operation must be retained.
+
+Next, we evaluated whether the ***interactions of age*** and the categorical variables (sex and type of operation) contributed meaningfully to the model. We compared the full model (fm5) with a reduced model in which the age × sex and age × TypeOp interactions were removed. 
+
+```{r testing the age interaction}
+fm_age_drop <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3),
+             data = DF, correlation = corCompSymm(form = ~ time | id), weights = varExp(form = ~ time), method = "ML")
+
+anova_age <- anova(fm5_ML, fm_age_drop)
+anova_age
+```
+*Observation of age test:*
+The likelihood ratio test showed no evidence that the age interactions contributed meaningfully (L.Ratio = 11.26284, p = 0.0806). The reduced model also had a marginally lower AIC, supporting the more simple model specification. Therefore, the age interaction terms were removed from the final mean structure.
+
+So the new model looks like this: 
+```{r reduced model}
+fm_reduced <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3),
+             data = DF, correlation = corCompSymm(form = ~ time | id), weights = varExp(form = ~ time), method = "ML")
+```
+
+To evaluate whether the evolution of the aortic gradient over time required a ***non‑linear specification**, we compared a model using a restricted cubic spline for time with an otherwise identical model using a simple linear time terms for both follow-up time and age.
+
+```{r testing time linearrity effects}
+fm_time_linear<- gls(aoGrad_log ~ time * (TypeOp + sex) + Age,
+             data = DF, correlation = corCompSymm(form = ~ time | id), weights = varExp(form = ~ time), method = "ML")
+
+anova_time_linearity <- anova(fm_reduced, fm_time_linear)
+anova_time_linearity
+```
+*Observation non-linear vs. linear time:*
+Both models were fitted using maximum likelihood (ML) because they differed in fixed‑effect structure. The linear model showed a substantial deterioration in fit (L.Ratio = 808.6, p < 0.0001), indicating that a linear trajectory could not adequately capture the observed patterns. 
+
+To test if this is only for follow-up time or also for age we measure again for non-linearity by comparing the age in splines vs. no splines. 
+```{r testing age linearrity effects}
+fm_age_linear<- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + Age,
+             data = DF, correlation = corCompSymm(form = ~ time | id), weights = varExp(form = ~ time), method = "ML")
+
+anova_age_linearity <- anova(fm_reduced, fm_age_linear)
+anova_age_linearity
+```
+*Observation non-linear vs. linear age:*
+The linear model showed there was no substantial difference in fit (L.Ratio = 4.043, p < 0.1325), indicating that a linear age trajectory can adequately capture the observed patterns and therefor does not need any non-linear specification. We therefore retained the non‑linear spline representation of time but removed the non-linear representation of age. 
+
+
+After establishing that time required a non‑linear form, we assessed whether a ***simpler spline*** (2 degrees of freedom) could replace the 3‑df spline used in the full model.
+
+```{r decreasingg spline knots}
+fm_time_spline2 <- gls(aoGrad_log ~ nsk(time, 2) * (TypeOp + sex) + ns(Age, 3),
+             data = DF, correlation = corCompSymm(form = ~ time | id), weights = varExp(form = ~ time), method = "ML")
+
+anova_knots <- anova(fm_reduced, fm_time_spline2)
+anova_knots
+```
+*Observation reduction of spline knots:*
+Reducing the spline flexibility led to a significantly poorer fit (L.Ratio = 47.4, p < 0.0001), demonstrating that the additional curvature captured by the 3‑df spline was necessary. The 3‑df spline was therefore retained as the optimal balance between flexibility and parsimony.
+
+
+***Conclusion model reduction***
+Based on the model‑reduction procedure, the interaction terms involving the non‑linear time effect were retained, whereas the interactions between age and the categorical variables (sex and type of operation) were removed. The final mean structure therefore includes a non‑linear effect of time, a non‑linear effect of age, main effects of sex and type of operation, and interactions between time and both sex and type of operation, but no interactions involving age.
+
+This final mean structure is combined with the heteroscedastic compound‑symmetry correlation structure identified earlier.
+
+
+### Interpretation
+```{r}
+summary(fm_reduced)
+```
+ 
+*First observations and interpretations:*
+1. The valve gradient seems to increase over time, the time spline coefficients (0.41 → 0.94 → 1.25 on log scale) show a consistent, nonlinear increase in aortic gradient across follow-up. 
+2. The TypeOpB main effect (−0.16, p = .042) suggests that patients who had Operation B start with slightly lower aortic gradients than Operation A patients. On a log scale this is a small difference, likely a few mmHg in real terms at the early time point.
+More interestingly, the significant interaction at the middle spline segment (−0.18, p = .005) means that Operation B patients experience a slower rise in gradient through the middle portion of follow-up compared to Operation A. However, this difference is not significant at the earliest or latest time points. 
+3. The most striking result is the sex difference. Females start with a lower aortic gradient than males (−0.94 on the log scale, p < .001), but the time × sex interaction terms are notable: +1.59, +2.64, and +3.06 across the three spline segments.This seems to indicate that female patients experience a dramatically steeper rise in aortic gradient over time compared to males.
+
+We will want to see however if these conclusions are meaningful and if we don't violate any of our assumptions previously made, namely;
+
+
+We check this by using an ***effect plot***:
+```{r effect plot for marignal model}
+# Effect plot function (from course)
+effectPlotData <- function(object, newdata, orig_data) {
+    form <- formula(object)
+    namesVars <- all.vars(form)
+    betas <- if (!inherits(object, "lme")) coef(object) else fixef(object)
+    V <- if (inherits(object, "geeglm")) object$geese$vbeta else vcov(object)
+    orig_data <- orig_data[complete.cases(orig_data[namesVars]), ]
+    Terms <- delete.response(terms(form))
+    mfX <- model.frame(Terms, data = orig_data)
+    Terms_new <- attr(mfX, "terms")
+    mfX_new <- model.frame(Terms_new, newdata, xlev = .getXlevels(Terms, mfX))
+    X <- model.matrix(Terms_new, mfX_new)
+    pred <- c(X %*% betas)
+    ses <- sqrt(diag(X %*% V %*% t(X)))
+    newdata$pred <- pred
+    newdata$low <- pred - 1.96 * ses
+    newdata$upp <- pred + 1.96 * ses
+    newdata
+}
+
+# Build prediction grid
+# Use median age, vary time across full 20-year follow-up
+# Cross all combinations of sex and TypeOp
+newdata_effect <- expand.grid(
+    time   = seq(0, 20, length.out = 100),
+    TypeOp = c("A", "B"),
+    sex    = c("male", "female"),
+    Age    = median(DF$Age, na.rm = TRUE)
+)
+
+# Generate predicted values + 95% CI
+plotData <- effectPlotData(fm_reduced, newdata_effect, DF)
+
+# Back-transform from log scale to mmHg
+plotData$pred_mmHg <- exp(plotData$pred)
+plotData$low_mmHg  <- exp(plotData$low)
+plotData$upp_mmHg  <- exp(plotData$upp)
+
+# Plot — predicted aortic gradient over 20 years by sex and operation type
+ggplot(plotData, aes(x = time, y = pred_mmHg,
+                     colour = sex, fill = sex,
+                     linetype = TypeOp)) +
+    geom_ribbon(aes(ymin = low_mmHg, ymax = upp_mmHg),
+                alpha = 0.15, colour = NA) +
+    geom_line(linewidth = 1) +
+    # Clinical severity reference lines
+    geom_hline(yintercept = 20, linetype = "dotted",
+               colour = "gray50", linewidth = 0.5) +
+    geom_hline(yintercept = 40, linetype = "dotted",
+               colour = "gray30", linewidth = 0.5) +
+    annotate("text", x = 20.2, y = 20, label = "mild/moderate",
+             hjust = 0, size = 3, colour = "gray50") +
+    annotate("text", x = 20.2, y = 40, label = "moderate/severe",
+             hjust = 0, size = 3, colour = "gray30") +
+    scale_colour_manual(values = c("male" = "#185FA5", "female" = "#993C1D"),
+                        labels = c("Male", "Female")) +
+    scale_fill_manual(values = c("male" = "#185FA5", "female" = "#993C1D"),
+                      labels = c("Male", "Female")) +
+    scale_linetype_manual(values = c("A" = "solid", "B" = "dashed"),
+                          labels = c("Operation A", "Operation B")) +
+    scale_x_continuous(breaks = seq(0, 20, by = 5)) +
+    coord_cartesian(xlim = c(0, 20)) +
+    labs(
+        x        = "Time since operation (years)",
+        y        = "Predicted aortic gradient (log_MM)",
+        colour   = "Sex",
+        fill     = "Sex",
+        linetype = "Operation type",
+        title    = "Predicted aortic gradient trajectories over 20 years",
+        subtitle = paste0("At median age ", round(median(DF$Age, na.rm = TRUE), 1), " years")
+    ) +
+    theme_minimal() +
+    theme(
+        plot.title    = element_text(hjust = 0.5, size = 14, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5, size = 11),
+        legend.position = "right"
+    )
+```
+
+## Question 4: 
+Do exactly the same as in Question 3, but now using a linear mixed effects model. 
+
+### Build an appropriate linear mixed effects model for the aortic gradient to answer this question. 
+
+Describe all the steps you have 
+performed to reach your final model (including the residuals analysis).
+
+#### Step 1.
+
+#### Step 2.
+
+#### Step 3.
+
+#### Interpretation
+For your final model, present the results you obtained in ‘simple words’ (i.e., such that a non statistician would understand – you may also use effect plots if deemed necessary). 
+
+
+## Question 5: Which of your two final models in Questions 3 and 4 would you choose as your final model for aortic gradient?
+
+
+
+# Part 2 of exam (categorical data) - Aortic Regurgitation
+The focus is on the aortic regurgitation outcome.
+
+## Question 6. 
+
+### Produce descriptive figures for this outcome and graphically depict the longitudinal evolutions (both marginal and subject-specific). 
+
+### Discuss the results you obtain.
+
+***Main Analysis***
+The researchers in this study are interested in investigating how the probability of aortic regurgitation evolves over time and how this evolution is related to the rest of the variables in the database (namely, age, sex, and type of operation). 
+
+## Question 7. 
+
+
+
+## Question 8 
+Do exactly the same as in Question 7, but now using a mixed effects logistic regression model.
+
+
+
+
+## Questin 9
+9. Which of your two final models in Questions 7 and 8 would you choose as your final
+model for aortic regurgitation? Would your answer change if the researchers in this
+study were primarily interested in predictions (i.e., building a model that best predicts
+aortic regurgitation)?
