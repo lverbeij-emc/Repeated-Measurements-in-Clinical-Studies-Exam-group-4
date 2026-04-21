@@ -1,0 +1,49 @@
+################################################################################
+# Repeated Measurements in Clinical Studies - Exam Analysis
+# MEP-EL002 --- Exam Group 4
+# Authors: Amanda Evelo, Anmol Rajpar, Maud van Drimmelen, Laura Verbeij
+################################################################################
+ 
+# ============================================================================
+# SETUP AND LIBRARY LOADING
+# ============================================================================
+ 
+# Global chunk options
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 10,
+  fig.height = 6,
+  fig.align = "center",
+  cache = FALSE
+)
+ 
+# Load required libraries
+library("shiny")
+library("lattice")
+library("nlme")
+library("lme4")
+library("geepack")
+library("GLMMadaptive")
+library("MASS")
+library("splines")
+library("corrplot")
+library("ggplot2")
+library("survival")
+library("tidyr")
+library("tidyverse")
+library("dplyr")
+library("tableone")
+library("gt")
+ 
+# Set theme for plots
+theme_set(theme_minimal() + 
+          theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+                plot.subtitle = element_text(hjust = 0.5, size = 12)))
+ 
+# ============================================================================
+# LOAD DATA
+# ============================================================================
+ 
+load("Group_4.RData")
