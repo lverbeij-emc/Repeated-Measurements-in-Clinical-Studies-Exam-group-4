@@ -1,0 +1,272 @@
+# ============================================================================
+# QUESTION 3: Main Marginal Model Analysis
+# ============================================================================
+ 
+# --- Step 1: Build initial marginal model (no correlation structure) ---
+fm0 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex) +
+             (sex * TypeOp),
+           data = DF)
+ 
+# --- Step 2: Check for duplicate time points within subjects ---
+df_dups <- DF %>%
+  group_by(id) %>%
+  filter(duplicated(time) | duplicated(time, fromLast = TRUE))
+ 
+# Fix duplicate time point for patient 24
+DF[DF$id == 24 & DF$time == 12.43, c("aoGrad", "aoReg", "aoGrad_log")] <- 
+  DF %>%
+  filter(id == 24, time == 12.43) %>%
+  summarise(across(c(aoGrad, aoReg, aoGrad_log, aoGrad_sqrt), mean, na.rm = TRUE))
+ 
+# Remove duplicates
+DF <- DF[!duplicated(DF[, c("id", "time")]), ]
+ 
+# --- Step 2: Add correlation structures (homoscedastic) ---
+ 
+# Refit base model
+fm0 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex) +
+             (sex * TypeOp), data = DF)
+ 
+# Compound Symmetry
+fm1 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex) +
+             (sex * TypeOp), data = DF, correlation = corCompSymm(form = ~ time | id))
+ 
+# Continuous autoregressive (CAR1)
+fm2 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex) +
+             (sex * TypeOp), data = DF, correlation = corCAR1(form = ~ time | id))
+ 
+# Linear correlation
+fm3 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex) +
+             (sex * TypeOp), data = DF, correlation = corLin(form = ~ time | id))
+ 
+# Gaussian correlation
+fm4 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex) +
+             (sex * TypeOp), data = DF, correlation = corGaus(form = ~ time | id))
+ 
+# Compare homoscedastic models
+anova1 <- anova(fm1, fm2, fm3, fm4)
+print(anova1)
+ 
+# --- Step 2b: Add heteroscedastic error structure ---
+ 
+# Compound Symmetry + heteroscedastic error
+fm5 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex) +
+             (sex * TypeOp), data = DF, correlation = corCompSymm(form = ~ time | id), 
+           weights = varExp(form = ~ time))
+ 
+# CAR1 + heteroscedastic error
+fm6 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex) +
+             (sex * TypeOp), data = DF, correlation = corCAR1(form = ~ time | id), 
+           weights = varExp(form = ~ time))
+ 
+# Linear + heteroscedastic error
+fm7 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex) +
+             (sex * TypeOp), data = DF, correlation = corLin(form = ~ time | id), 
+           weights = varExp(form = ~ time))
+ 
+# Gaussian + heteroscedastic error
+fm8 <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex) +
+             (sex * TypeOp), data = DF, correlation = corGaus(form = ~ time | id), 
+           weights = varExp(form = ~ time))
+ 
+# Compare heteroscedastic models
+anova2 <- anova(fm5, fm6, fm7, fm8)
+print(anova2)
+ 
+# Compare fm1 vs fm5 (homoscedastic vs heteroscedastic)
+anova3 <- anova(fm1, fm5)
+print(anova3)
+ 
+# --- Step 3: Test interaction terms ---
+ 
+# Fit models with ML for likelihood ratio tests
+fm5_ML <- gls(
+  aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) + 
+    ns(Age, 3):(TypeOp + sex) +
+    (sex * TypeOp),
+  data = DF,
+  correlation = corCompSymm(form = ~ time | id),
+  weights = varExp(form = ~ time),
+  method = "ML"
+)
+ 
+# Test all interactions
+fm5_noInt_ML <- gls(
+  aoGrad_log ~ nsk(time, 3) + TypeOp + sex + ns(Age, 3),
+  data = DF,
+  correlation = corCompSymm(form = ~ time | id),
+  weights = varExp(form = ~ time),
+  method = "ML"
+)
+ 
+print(anova(fm5_ML, fm5_noInt_ML))
+ 
+# Test time interactions
+fm_time_drop <- gls(aoGrad_log ~ nsk(time, 3) + (TypeOp + sex) + ns(Age, 3) +
+             ns(Age, 3) : (TypeOp + sex) +
+             (sex * TypeOp),
+         data = DF, correlation = corCompSymm(form = ~ time | id), 
+         weights = varExp(form = ~ time), method = "ML")
+ 
+anova_time <- anova(fm5_ML, fm_time_drop)
+print(anova_time)
+ 
+# Test age interactions
+fm_age_drop <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+    (sex * TypeOp),
+             data = DF, correlation = corCompSymm(form = ~ time | id), 
+             weights = varExp(form = ~ time), method = "ML")
+ 
+anova_age <- anova(fm5_ML, fm_age_drop)
+print(anova_age)
+ 
+# Test sex × TypeOp interaction
+fm_sex_drop <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3),
+             data = DF, correlation = corCompSymm(form = ~ time | id), 
+             weights = varExp(form = ~ time), method = "ML")
+ 
+anova_sex <- anova(fm5_ML, fm_sex_drop)
+print(anova_sex)
+ 
+# Final reduced model
+fm_reduced <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) +
+    (sex * TypeOp),
+             data = DF, correlation = corCompSymm(form = ~ time | id), 
+             weights = varExp(form = ~ time), method = "ML")
+ 
+# Test time linearity
+fm_time_linear <- gls(aoGrad_log ~ time + (TypeOp + sex) + Age +
+    (sex * TypeOp),
+             data = DF, correlation = corCompSymm(form = ~ time | id), 
+             weights = varExp(form = ~ time), method = "ML")
+ 
+anova_time_linearity <- anova(fm_reduced, fm_time_linear)
+print(anova_time_linearity)
+ 
+# Test age linearity
+fm_age_linear <- gls(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + Age +
+    (sex * TypeOp),
+             data = DF, correlation = corCompSymm(form = ~ time | id), 
+             weights = varExp(form = ~ time), method = "ML")
+ 
+anova_age_linearity <- anova(fm_reduced, fm_age_linear)
+print(anova_age_linearity)
+ 
+# Test spline degrees of freedom
+fm_time_spline2 <- gls(aoGrad_log ~ nsk(time, 2) * (TypeOp + sex) + ns(Age, 3) +
+    (sex * TypeOp),
+             data = DF, correlation = corCompSymm(form = ~ time | id), 
+             weights = varExp(form = ~ time), method = "ML")
+ 
+anova_knots <- anova(fm_reduced, fm_time_spline2)
+print(anova_knots)
+ 
+# --- Summary of reduced model ---
+print(summary(fm_reduced))
+ 
+# --- Effect plot function ---
+effectPlotData <- function(object, newdata, orig_data) {
+    form <- formula(object)
+    namesVars <- all.vars(form)
+    betas <- if (!inherits(object, "lme")) coef(object) else fixef(object)
+    V <- if (inherits(object, "geeglm")) object$geese$vbeta else vcov(object)
+    orig_data <- orig_data[complete.cases(orig_data[namesVars]), ]
+    Terms <- delete.response(terms(form))
+    mfX <- model.frame(Terms, data = orig_data)
+    Terms_new <- attr(mfX, "terms")
+    mfX_new <- model.frame(Terms_new, newdata, xlev = .getXlevels(Terms, mfX))
+    X <- model.matrix(Terms_new, mfX_new)
+    pred <- c(X %*% betas)
+    ses <- sqrt(diag(X %*% V %*% t(X)))
+    newdata$pred <- pred
+    newdata$low <- pred - 1.96 * ses
+    newdata$upp <- pred + 1.96 * ses
+    newdata
+}
+ 
+# Create prediction grid
+newdata_effect <- expand.grid(
+    time   = seq(0, 20, length.out = 100),
+    TypeOp = c("A", "B"),
+    sex    = c("male", "female"),
+    Age    = median(DF$Age, na.rm = TRUE)
+)
+ 
+# Generate predictions with CIs
+plotData <- effectPlotData(fm_reduced, newdata_effect, DF)
+ 
+# Back-transform from log scale
+plotData$pred_mmHg <- exp(plotData$pred)
+plotData$low_mmHg  <- exp(plotData$low)
+plotData$upp_mmHg  <- exp(plotData$upp)
+ 
+# Effect plot
+ggplot(plotData, aes(x = time, y = pred_mmHg,
+                     colour = sex, fill = sex,
+                     linetype = TypeOp)) +
+    geom_ribbon(aes(ymin = low_mmHg, ymax = upp_mmHg),
+                alpha = 0.15, colour = NA) +
+    geom_line(linewidth = 1) +
+    geom_hline(yintercept = 20, linetype = "dotted",
+               colour = "gray50", linewidth = 0.5) +
+    geom_hline(yintercept = 40, linetype = "dotted",
+               colour = "gray30", linewidth = 0.5) +
+    annotate("text", x = 20.2, y = 20, label = "mild/moderate",
+             hjust = 0, size = 3, colour = "gray50") +
+    annotate("text", x = 20.2, y = 40, label = "moderate/severe",
+             hjust = 0, size = 3, colour = "gray30") +
+    scale_colour_manual(values = c("male" = "#185FA5", "female" = "#993C1D"),
+                        labels = c("Male", "Female")) +
+    scale_fill_manual(values = c("male" = "#185FA5", "female" = "#993C1D"),
+                      labels = c("Male", "Female")) +
+    scale_linetype_manual(values = c("A" = "solid", "B" = "dashed"),
+                          labels = c("Operation A", "Operation B")) +
+    scale_x_continuous(breaks = seq(0, 20, by = 5)) +
+    coord_cartesian(xlim = c(0, 20)) +
+    labs(
+        x        = "Time since operation (years)",
+        y        = "Predicted aortic gradient (mmHg)",
+        colour   = "Sex",
+        fill     = "Sex",
+        linetype = "Operation type",
+        title    = "Predicted aortic gradient trajectories over 20 years",
+        subtitle = paste0("At median age ", round(median(DF$Age, na.rm = TRUE), 1), " years")
+    ) +
+    theme_minimal() +
+    theme(
+        plot.title    = element_text(hjust = 0.5, size = 14, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5, size = 11),
+        legend.position = "right"
+    )
+ 
+# --- Residual diagnostics ---
+ 
+# Standardized residuals
+plot(fm_reduced, resid(., type = "p") ~ fitted(.), 
+     type = c("p", "smooth"), lwd = 3)
+ 
+plot(fm_reduced, resid(., type = "p") ~ fitted(.) | sex, 
+     type = c("p", "smooth"), lwd = 3)
+ 
+plot(fm_reduced, resid(., type = "p") ~ fitted(.) | TypeOp, 
+     type = c("p", "smooth"), lwd = 3)
+ 
+# Normalized residuals
+plot(fm_reduced, resid(., type = "n") ~ fitted(.), 
+     type = c("p", "smooth"), lwd = 3)
+ 
+plot(fm_reduced, resid(., type = "n") ~ fitted(.) | sex, 
+     type = c("p", "smooth"), lwd = 3)
+ 
+plot(fm_reduced, resid(., type = "n") ~ fitted(.) | TypeOp, 
+     type = c("p", "smooth"), lwd = 3)
