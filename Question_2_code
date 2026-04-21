@@ -1,0 +1,132 @@
+################################################################################
+# PART 1: CONTINUOUS DATA - AORTIC GRADIENT
+################################################################################
+
+# ============================================================================
+# QUESTION 2: Descriptive Analysis and Distribution
+# ============================================================================
+ 
+# --- Spaghetti plot: General aortic gradient values over time ---
+xyplot(aoGrad ~ time,
+       data = DF, 
+       groups = id,
+       type = "l",
+       col = "lightblue",
+       lwd = 1,
+       alpha = 0.5,
+       panel = function(x, y, ...)
+       {
+         panel.xyplot(x, y, ...)                      # spaghetti lines
+         panel.loess(x, y, col = "darkblue", lwd = 2) # dark blue smoother
+       })
+ 
+# --- Spaghetti plot split by type of operation ---
+xyplot(aoGrad ~ time | TypeOp,
+       data = DF, 
+       groups = id,
+       type = "l",
+       col = "lightblue",
+       lwd = 1,
+       alpha = 0.5,
+       panel = function(x, y, ...) {
+         panel.xyplot(x, y, ...)                      # spaghetti lines
+         panel.loess(x, y, col = "darkblue", lwd = 2) # dark blue smoother
+       })
+ 
+# --- Spaghetti plot split by sex ---
+xyplot(aoGrad ~ time | sex,
+       data = DF, 
+       groups = id,
+       type = "l",
+       col = "lightblue",
+       lwd = 1,
+       alpha = 0.5,
+       panel = function(x, y, ...) {
+         panel.xyplot(x, y, ...)
+         panel.loess(x, y, col = "darkblue", lwd = 2)
+       })
+ 
+# --- Smooth trend plot by sex ---
+xyplot(aoGrad ~ time | sex, data = DF, type = c("p", "smooth"), cex = 0.5, lwd = 2) 
+ 
+# --- Aortic gradient by age (continuous) ---
+xyplot(aoGrad ~ Age, data = DF, type = c("p", "smooth"), cex = 0.5, lwd = 2)
+ 
+# --- Create age groups ---
+DF$ageGroup <- cut(DF$Age, 
+                   breaks = c(0, 30, 50, 65, 120),
+                   labels = c("<30", "30-50", "50-65", "65+"))
+ 
+# --- Aortic gradient evolution by age groups ---
+xyplot(aoGrad ~ time | ageGroup, data = DF, type = c("p", "smooth"), cex = 0.5, lwd = 2)
+ 
+# --- Aortic gradient by age groups and sex ---
+xyplot(aoGrad ~ time | ageGroup, data = DF, 
+       groups = sex,
+       type = c("p", "smooth"), 
+       cex = 0.5, lwd = 2, 
+       auto.key = list(space = "right"),
+       main = "aoGrad over time by agegroups and sex",
+       xlab = "Time in years",
+       ylab = "aoGrad (mmHg)")
+ 
+# --- Aortic gradient by age groups and operation type ---
+xyplot(aoGrad ~ time | ageGroup, data = DF, 
+       groups = TypeOp,
+       type = c("p", "smooth"), 
+       cex = 0.5, lwd = 2, 
+       auto.key = list(space = "right"),
+       main = "aoGrad over time by agegroups and operation type",
+       xlab = "Time in years",
+       ylab = "aoGrad (mmHg)")
+ 
+# --- Histogram and density plot for aortic gradient ---
+ggplot(DF, aes(x = aoGrad)) +
+  geom_histogram(aes(y = after_stat(density)), 
+                 binwidth = 5, fill = "skyblue", color = "black", alpha = 0.8) +
+  geom_density(color = "darkblue", lwd = 1.2) +
+  labs(x = "Aortic gradient",
+       y = "Density",
+       title = "Aortic gradient distribution (histogram + density)") +
+  theme_minimal()
+ 
+# --- Transform aortic gradient: log and sqrt ---
+DF$aoGrad_log <- log(DF$aoGrad)
+DF$aoGrad_sqrt <- sqrt(DF$aoGrad)
+ 
+# Stack both transformed versions for comparison
+df_long <- tidyr::pivot_longer(
+  DF,
+  cols = c(aoGrad_log, aoGrad_sqrt),
+  names_to = "transf",
+  values_to = "value"
+)
+ 
+# Density and histogram comparison
+ggplot(df_long, aes(x = value, color = transf, fill = transf, alpha = after_scale(0.2))) +
+  geom_density() +
+  geom_histogram(aes(y = after_stat(density)), 
+                 alpha = 0.3, bins = 30, position = "identity") +
+  labs(x = "Transformed aortic gradient",
+       y = "Density",
+       title = "Log vs. sqrt transformation of aortic gradient",
+       color = "Transformation",
+       fill = "Transformation") +
+  theme_minimal()
+ 
+# QQ plots for transformation comparison
+par(mfrow = c(1, 2))
+ 
+qqnorm(DF$aoGrad_log,
+       main = "QQ plot: log(aortic gradient)",
+       pch = 16,
+       cex = 0.6)
+qqline(DF$aoGrad_log, col = "red", lwd = 1.5)
+ 
+qqnorm(DF$aoGrad_sqrt,
+       main = "QQ plot: sqrt(aortic gradient)",
+       pch = 16,
+       cex = 0.6)
+qqline(DF$aoGrad_sqrt, col = "red", lwd = 1.5)
+ 
+par(mfrow = c(1, 1))
