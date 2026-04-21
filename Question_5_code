@@ -1,0 +1,19 @@
+################################################################################
+# PART 1: CONTINUOUS DATA - AORTIC GRADIENT
+################################################################################
+ 
+# ============================================================================
+# QUESTION 5: Model Comparison
+# ============================================================================
+
+# Compare marginal model (fm_reduced) vs. mixed effects model (lme_age_linear)
+# Note: fm_reduced uses method="ML", lme_age_linear uses method="ML"
+ 
+# Both models can be compared for AIC/BIC
+cat("Marginal Model (GLS):\n")
+cat("AIC:", AIC(fm_reduced), "\n")
+cat("BIC:", BIC(fm_reduced), "\n")
+ 
+cat("\nLinear Mixed Effects Model:\n")
+cat("AIC:", AIC(lme_age_linear), "\n")
+cat("BIC:", BIC(lme_age_linear), "\n")
