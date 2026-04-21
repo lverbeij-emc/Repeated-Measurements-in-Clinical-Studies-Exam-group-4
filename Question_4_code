@@ -1,0 +1,201 @@
+################################################################################
+# PART 1: CONTINUOUS DATA - AORTIC GRADIENT
+################################################################################
+ 
+# ============================================================================
+# QUESTION 4: Linear Mixed Effects Model
+# ============================================================================
+
+
+# --- Step 1: Baseline LME model with random intercepts ---
+lme0 <- lme(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3) + 
+                 ns(Age, 3):(TypeOp + sex) + (sex * TypeOp),
+               data = DF,
+               random = ~ 1 | id)
+ 
+# --- Step 2: Expand random effects structure ---
+ 
+# Linear random slope for time
+lme1 <- update(lme0, random = ~ time | id)
+print(anova(lme0, lme1))
+ 
+# Quadratic random slope
+lme2 <- update(lme0, random = ~ time + I(time^2) | id)
+print(anova(lme1, lme2))
+ 
+# Test spline random slopes
+lmetest <- update(lme0, random = ~ nsk(time, 3) | id)
+print(anova(lme2, lmetest))
+ 
+# Attempt cubic random slope (may not converge)
+lme3 <- update(lme2, random = ~ time + I(time^2) + I(time^3) | id)
+print(anova(lme2, lme3))
+ 
+# --- Step 3: Test fixed effects structure ---
+ 
+# Refit with ML
+lme2_ML <- update(lme2, method = "ML")
+ 
+# Remove all interactions
+lme2_ML_noInt <- lme(aoGrad_log ~ nsk(time, 3) + (TypeOp + sex) + ns(Age, 3),
+               data = DF,
+               random = ~ time + I(time^2) | id,
+               method = "ML")
+ 
+print(anova(lme2_ML, lme2_ML_noInt))
+ 
+# Drop time interactions
+lme2_ML_time_drop <- lme(aoGrad_log ~ nsk(time, 3) + (TypeOp + sex) + ns(Age, 3) + 
+              ns(Age, 3):(TypeOp + sex),
+              data = DF,
+              random = ~ time + I(time^2) | id,
+              method = "ML")
+ 
+anova_lme_time <- anova(lme2_ML, lme2_ML_time_drop)
+print(anova_lme_time)
+ 
+# Drop age interactions
+lme2_age_drop <- lme(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + ns(Age, 3),
+              data = DF,
+              random = ~ time + I(time^2) | id,
+              method = "ML")
+ 
+anova_lme_age <- anova(lme2_ML, lme2_age_drop)
+print(anova_lme_age)
+ 
+# Final model with linear age
+lme_age_linear <- lme(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + Age,
+              data = DF,
+              random = ~ time + I(time^2) | id,
+              method = "ML")
+ 
+# Test time linearity
+lme_time_linear <- lme(aoGrad_log ~ time * (TypeOp + sex) + Age,
+              data = DF,
+              random = ~ time + I(time^2) | id,
+              method = "ML")
+ 
+anova_lme_time_linearity <- anova(lme_age_linear, lme_time_linear)
+print(anova_lme_time_linearity)
+ 
+# Test age linearity (already linear in lme_age_linear)
+lme_age_linear_test <- lme(aoGrad_log ~ nsk(time, 3) * (TypeOp + sex) + Age,
+              data = DF,
+              random = ~ time + I(time^2) | id,
+              method = "ML")
+ 
+# Test spline knots
+lme_time_spline2 <- lme(aoGrad_log ~ nsk(time, 2) * (TypeOp + sex) + Age,
+              data = DF,
+              random = ~ time + I(time^2) | id,
+              method = "ML")
+ 
+anova_lme_knots <- anova(lme_age_linear, lme_time_spline2)
+print(anova_lme_knots)
+ 
+# --- Step 4: Interpretation and diagnostics ---
+ 
+print(summary(lme_age_linear))
+ 
+# Add fitted values (marginal and subject-specific)
+DF$fitted_marg <- fitted(lme_age_linear, level = 0)
+DF$fitted_subj <- fitted(lme_age_linear, level = 1)
+ 
+# Count repeated measurements per subject
+length.no.NA <- function (x) sum(!is.na(x))
+ns <- with(DF, tapply(aoGrad_log, id, length.no.NA))
+ 
+# Subject-specific trajectories for sample of patients
+set.seed(123)
+ids <- sample(names(ns)[ns >= 6], 16) 
+xyplot(aoGrad_log ~ time | id,
+       panel = function (x, y, ...) {
+           panel.xyplot(x, y, type = "p", col = 1, ...)
+           panel.loess(x, y, col = 2, lwd = 2, span = 0.8)
+       }, data = DF, subset = id %in% ids, layout = c(4, 4), as.table = TRUE, 
+       xlab = "Time (years)", ylab = "Aortic Gradient (log of mmHg)")
+ 
+# Marginal vs subject-specific predictions
+ids <- c(25, 54, 143, 196, 212, 216, 258, 268, 276, 324, 391, 434, 439, 469, 470, 495)
+xyplot(aoGrad_log + fitted_marg + fitted_subj ~ time | id, data = DF,
+       panel = function (x, y, ...) {
+           x.mat <- matrix(x, ncol = 3)
+           y.mat <- matrix(y, ncol = 3)
+           panel.xyplot(x.mat[, 1], y.mat[, 1], type = "p", col = "black")
+           panel.xyplot(x.mat[, 2], y.mat[, 2], type = "l", lwd = 2, col = "red")
+           panel.xyplot(x.mat[, 3], y.mat[, 3], type = "l", lwd = 2, col = "blue")
+       }, subset = id %in% ids, layout = c(4, 4), as.table = TRUE, 
+       xlab = "Time (years)", ylab = "Aortic Gradient (log of mmHg)")
+ 
+# --- Effect plot for LME ---
+ 
+newdata_effect <- expand.grid(
+    time   = seq(0, 20, length.out = 100),
+    TypeOp = c("A", "B"),
+    sex    = c("male", "female"),
+    Age    = median(DF$Age, na.rm = TRUE)
+)
+ 
+plotData <- effectPlotData(lme_age_linear, newdata_effect, DF)
+ 
+plotData$pred_mmHg <- exp(plotData$pred)
+plotData$low_mmHg  <- exp(plotData$low)
+plotData$upp_mmHg  <- exp(plotData$upp)
+ 
+ggplot(plotData, aes(x = time, y = pred_mmHg,
+                     colour = sex, fill = sex,
+                     linetype = TypeOp)) +
+    geom_ribbon(aes(ymin = low_mmHg, ymax = upp_mmHg),
+                alpha = 0.15, colour = NA) +
+    geom_line(linewidth = 1) +
+    geom_hline(yintercept = 20, linetype = "dotted",
+               colour = "gray50", linewidth = 0.5) +
+    geom_hline(yintercept = 40, linetype = "dotted",
+               colour = "gray30", linewidth = 0.5) +
+    annotate("text", x = 20.2, y = 20, label = "mild/moderate",
+             hjust = 0, size = 3, colour = "gray50") +
+    annotate("text", x = 20.2, y = 40, label = "moderate/severe",
+             hjust = 0, size = 3, colour = "gray30") +
+    scale_colour_manual(values = c("male" = "#185FA5", "female" = "#993C1D"),
+                        labels = c("Male", "Female")) +
+    scale_fill_manual(values = c("male" = "#185FA5", "female" = "#993C1D"),
+                      labels = c("Male", "Female")) +
+    scale_linetype_manual(values = c("A" = "solid", "B" = "dashed"),
+                          labels = c("Operation A", "Operation B")) +
+    scale_x_continuous(breaks = seq(0, 20, by = 5)) +
+    coord_cartesian(xlim = c(0, 20)) +
+    labs(
+        x        = "Time since operation (years)",
+        y        = "Predicted aortic gradient (mmHg)",
+        colour   = "Sex",
+        fill     = "Sex",
+        linetype = "Operation type",
+        title    = "Predicted aortic gradient trajectories over 20 years (LME)",
+        subtitle = paste0("At median age ", round(median(DF$Age, na.rm = TRUE), 1), " years")
+    ) +
+    theme_minimal() +
+    theme(
+        plot.title    = element_text(hjust = 0.5, size = 14, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5, size = 11),
+        legend.position = "right"
+    )
+ 
+# --- Residual diagnostics for LME ---
+ 
+plot(lme_age_linear, resid(., type = "p") ~ fitted(.), 
+     type = c("p", "smooth"), lwd = 3)
+ 
+plot(lme_age_linear, resid(., type = "p") ~ fitted(.) | sex, 
+     type = c("p", "smooth"), lwd = 3)
+ 
+plot(lme_age_linear, resid(., type = "p") ~ fitted(.) | TypeOp, 
+     type = c("p", "smooth"), lwd = 3)
+ 
+plot(lme_age_linear, resid(., type = "n") ~ fitted(.), 
+     type = c("p", "smooth"), lwd = 3)
+ 
+plot(lme_age_linear, resid(., type = "n") ~ fitted(.) | sex, 
+     type = c("p", "smooth"), lwd = 3)
+ 
+plot(lme_age_linear, resid(., type = "n") ~ fitted(.) | TypeOp, 
+     type = c("p", "smooth"), lwd = 3)
